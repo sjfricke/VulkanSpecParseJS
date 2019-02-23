@@ -33,7 +33,7 @@ function parseSpec() {
 	// ------------- Enums -------------
 	specDB.enums = [];
 	for (var i = 0; i < registry.enums.length; i++) {
-	    oldEnum = registry.enums[i];
+	    var oldEnum = registry.enums[i];
 	    var newEnum = {};
 
 	    // enum or bitmask types
@@ -79,7 +79,7 @@ function parseSpec() {
 	specDB.structs = [];
 	specDB.unions = [];
 	for (var i = 0; i < registry.types[0].type.length; i++) {
-	    oldType = registry.types[0].type[i];
+	    var oldType = registry.types[0].type[i];
 	    if (!oldType.member) { continue; }
 	    
 	    var newStruct = {};
@@ -93,9 +93,9 @@ function parseSpec() {
 		    "name" : oldType.member[j].name[0]
 		};
 		
-		// append array type if there is one
+		// Check for point and arrays in type
 		if (oldType.member[j]._) {
-		    member.name += oldType.member[j]._.trim()
+		    member.type += oldType.member[j]._.trim()
 		}
 		
 		members.push(member);
@@ -108,9 +108,53 @@ function parseSpec() {
 		specDB.unions.push(newStruct);
 	    }
 	}
-	
+
 	// ------------- Commands -------------
+	specDB.commands = [];
+	for (var i = 0; i < registry.commands[0].command.length; i++) {
+	    var oldCommand = registry.commands[0].command[i];
+	    if (!oldCommand.proto) { continue; }
+	    
+	    var newCommand = {
+		"name" : oldCommand.proto[0].name[0],
+		"return" : oldCommand.proto[0].type[0]
+	    };
 	
+	    // Special function attributes
+	    if (oldCommand.$) {
+		if (oldCommand.$.queues) { newCommand.queues = oldCommand.$.queues.split(","); }
+		if (oldCommand.$.renderpass) { newCommand.renderpass = oldCommand.$.renderpass; }
+		if (oldCommand.$.cmdbufferlevel) { newCommand.cmdbufferlevel = oldCommand.$.cmdbufferlevel.split(","); }
+		if (oldCommand.$.pipeline) { newCommand.pipeline = oldCommand.$.pipeline; }
+		if (oldCommand.$.successcodes) { newCommand.successcodes = oldCommand.$.successcodes.split(","); }
+		if (oldCommand.$.errorcodes) { newCommand.errorcodes = oldCommand.$.errorcodes.split(","); }
+	    }
+
+	    // Format parameters
+	    var params = [];
+	    for (var j = 0; j < oldCommand.param.length; j++) {
+		var param = {
+		    "name" : oldCommand.param[j].name[0],
+		    "type" : oldCommand.param[j].type[0]
+		};
+
+		// Check for param attributes
+		if (oldCommand.param[j].$) {
+		    if (oldCommand.param[j].$.optional) { param.optional = oldCommand.param[j].$.optional; }
+		}
+
+		// Check for point and arrays in type
+		if (oldCommand.param[j]._) {
+		    param.type += oldCommand.param[j]._.trim();
+		}
+		
+		params.push(param);
+	    }
+	    newCommand.params = params;
+
+	    specDB.commands.push(newCommand);
+	}
+	    
 	// ------------- Features -------------
 
 	// ------------- Extensions -------------
