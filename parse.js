@@ -2,7 +2,7 @@ const fs = require("fs");
 const request = require("sync-request");
 var parseXml = require('xml2js').parseString;
 
-const specFilePath = "./vk.xml"
+const specFilePath = "./vk.xml";
 const specUrl = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml";
 
 // gSpecDB is the global restructured version of the spec to JSON for easier querying
@@ -10,7 +10,6 @@ const specUrl = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/mast
 var gSpecDB = {
     "headerVersion" : "",
     "index" : {},
-    "indexDeep" : {},
     "enums" : [],
     "structs" : [],
     "unions" : [],
@@ -81,13 +80,13 @@ function parseSpec() {
 
 	    // Update index
 	    var thisIndex = {"key" : "enums", "index" : gSpecDB.enums.length };
-	    gSpecDB.index[newEnum.name.toLowerCase()] = thisIndex;
+	    gSpecDB.index[newEnum.name.toLowerCase()] = [thisIndex];
 	    for (var j = 0; j < newEnum.fields.length; j++) {
 		var name = newEnum.fields[j].name.toLowerCase();
-		if (typeof(gSpecDB.indexDeep[name]) == "object") {
-		    gSpecDB.indexDeep[name].push(thisIndex);
+		if (typeof(gSpecDB.index[name]) == "object") {
+		    gSpecDB.index[name].push(thisIndex);
 		} else {
-		    gSpecDB.indexDeep[name] = [thisIndex];
+		    gSpecDB.index[name] = [thisIndex];
 		}
 	    }
 
@@ -120,12 +119,12 @@ function parseSpec() {
 			};
 
 			var newIndex = {"key" : "enums", "index" : gSpecDB.enums.length };
-			gSpecDB.index[newEnum.name.toLowerCase()] = newIndex;
+			gSpecDB.index[newEnum.name.toLowerCase()] = [newIndex];
 			var name = newEnum.fields[0].name.toLowerCase();
-			if (typeof(gSpecDB.indexDeep[name]) == "object") {
-			    gSpecDB.indexDeep[name].push(thisIndex);
+			if (typeof(gSpecDB.index[name]) == "object") {
+			    gSpecDB.index[name].push(newIndex);
 			} else {
-			    gSpecDB.indexDeep[name] = [thisIndex];
+			    gSpecDB.index[name] = [newIndex];
 			}
 
 			gSpecDB.enums.push(newEnum);
@@ -145,14 +144,16 @@ function parseSpec() {
 			continue;
 		    }
 		    
-		    gSpecDB.enums[thisIndex.index].fields.push(field);
-		    
-		    // Add to indexDeep
-		    var name = field.name.toLowerCase();
-		    if (typeof(gSpecDB.indexDeep[name]) == "object") {
-			gSpecDB.indexDeep[name].push(thisIndex);
-		    } else {
-			gSpecDB.indexDeep[name] = [thisIndex];
+		    // Add to index
+		    for (var index = 0; index < thisIndex.length; index++) {
+			gSpecDB.enums[thisIndex[0].index].fields.push(field);
+			
+			var name = field.name.toLowerCase();
+			if (typeof(gSpecDB.index[name]) == "object") {
+			    gSpecDB.index[name].push(thisIndex[0]);
+			} else {
+			    gSpecDB.index[name] = [thisIndex[0]];
+			}
 		    }
 		}
 	    }
@@ -191,13 +192,13 @@ function parseSpec() {
 	    
 	    // Update index
 	    var thisIndex = {"key" : dbField, "index" : gSpecDB[dbField].length };
-	    gSpecDB.index[newStruct.name.toLowerCase()] = thisIndex;
+	    gSpecDB.index[newStruct.name.toLowerCase()] = [thisIndex];
 	    for (var j = 0; j < newStruct.members.length; j++) {
 		var name = newStruct.members[j].name.toLowerCase();
-		if (typeof(gSpecDB.indexDeep[name]) == "object") {
-		    gSpecDB.indexDeep[name].push(thisIndex);
+		if (typeof(gSpecDB.index[name]) == "object") {
+		    gSpecDB.index[name].push(thisIndex);
 		} else {
-		    gSpecDB.indexDeep[name] = [thisIndex];
+		    gSpecDB.index[name] = [thisIndex];
 		}
 	    }
 	    gSpecDB[dbField].push(newStruct);
@@ -212,7 +213,7 @@ function parseSpec() {
 		"name" : oldCommand.proto[0].name[0],
 		"return" : oldCommand.proto[0].type[0]
 	    };
-	
+	    
 	    // Special function attributes
 	    if (oldCommand.$) {
 		if (oldCommand.$.queues) { newCommand.queues = oldCommand.$.queues.split(","); }
@@ -245,10 +246,20 @@ function parseSpec() {
 	    }
 	    newCommand.params = params;
 
-	    gSpecDB.index[newCommand.name.toLowerCase()] = {"key" : "commands", "index" : gSpecDB.commands.length };;
+	    // Add to index
+	    var thisIndex = {"key" : "commands", "index" : gSpecDB.commands.length };
+	    gSpecDB.index[newCommand.name.toLowerCase()] = [thisIndex];
+	    for (var j = 0; j < newCommand.params.length; j++) {
+		var name = newCommand.params[j].name.toLowerCase();
+		if (typeof(gSpecDB.index[name]) == "object") {
+		    gSpecDB.index[name].push(thisIndex);
+		} else {
+		    gSpecDB.index[name] = [thisIndex];
+		}
+	    }
 	    gSpecDB.commands.push(newCommand);
 	}
-	    
+	
 	debugger; // For getting repl in inspect mode to view gSpecDB
     });
 }
