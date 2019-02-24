@@ -2,7 +2,7 @@
 
 The parse.js `parseSpec()` function creates a SpecDB. Here is the JSON layout of the `gSpecDB` variable to be used to interact with it easier
 
-```
+```javascript
 var gSpecDB = {
     "headerVersion" : "", // Header version string
     
