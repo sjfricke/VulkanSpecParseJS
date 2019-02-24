@@ -5,6 +5,18 @@ var parseXml = require('xml2js').parseString;
 const specFilePath = "./vk.xml"
 const specUrl = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml";
 
+// gSpecDB is the global restructured version of the spec to JSON for easier querying
+// The structure/modle can be found in ./specdb.md
+var gSpecDB = {
+    "headerVersion" : "",
+    "index" : {},
+    "indexDeep" : {},
+    "enums" : [],
+    "structs" : [],
+    "unions" : [],
+    "commands" : []
+};
+
 function parseSpec() {
 
     // Gets file from either local xml or else from url
@@ -18,30 +30,26 @@ function parseSpec() {
 	specXml = request("GET", specUrl).getBody();
     }
     if (specXml.length == 0) { console.error("Spec file was empty!!!"); }
-
-    // SpecDB is the restructured version of the spec to JSON for easier querying
-    var specDB = {};
     
     parseXml(specXml, function(err, result) {
 	const registry = result.registry;
 
 	// ------------- Header Version -------------
-	registry.types[0].type[30].name[0] == "VK_HEADER_VERSION"
-	var x = registry.types[0].type[30]._
-	specDB.headerVersion = x.substr(x.indexOf("#define") + 9)
+	registry.types[0].type[30].name[0] = "VK_HEADER_VERSION";
+	var x = registry.types[0].type[30]._;
+	gSpecDB.headerVersion = x.substr(x.indexOf("#define") + 9);
 
 	// ------------- Enums -------------
-	specDB.enums = [];
 	for (var i = 0; i < registry.enums.length; i++) {
 	    var oldEnum = registry.enums[i];
 	    var newEnum = {};
-
+	    var fields = [];
+	    
 	    // enum or bitmask types
 	    if (oldEnum.$.type == "enum") {
 		if (!oldEnum.enum) { continue; }
 
 		// Get rid of extra {$ : <vlaue>} object nested
-		var fields = [];
 		for (var j = 0; j < oldEnum.enum.length; j++) {
 		    fields.push(oldEnum.enum[j].$);
 		}
@@ -54,7 +62,6 @@ function parseSpec() {
 		if (!oldEnum.enum) { continue; }
 
 		// Turn bitpos into hex string value
-		var fields = [];
 		for (var j = 0; j < oldEnum.enum.length; j++) {
 		    fields.push({
 			"name" : oldEnum.enum[j].$.name,
@@ -71,13 +78,87 @@ function parseSpec() {
 		// Anything invalid
 		continue;
 	    }
-	    
-	    specDB.enums.push(newEnum);
+
+	    // Update index
+	    var thisIndex = {"key" : "enums", "index" : gSpecDB.enums.length };
+	    gSpecDB.index[newEnum.name.toLowerCase()] = thisIndex;
+	    for (var j = 0; j < newEnum.fields.length; j++) {
+		var name = newEnum.fields[j].name.toLowerCase();
+		if (typeof(gSpecDB.indexDeep[name]) == "object") {
+		    gSpecDB.indexDeep[name].push(thisIndex);
+		} else {
+		    gSpecDB.indexDeep[name] = [thisIndex];
+		}
+	    }
+
+	    gSpecDB.enums.push(newEnum);
 	}
 
+	// ------------- Extension Extended Enums -------------
+	for (var i = 0; i < registry.extensions[0].extension.length; i++) {
+	    if (!registry.extensions[0].extension[i].require) { continue; }
+	    for (var k = 0; k < registry.extensions[0].extension[i].require.length; k++) {
+		var thisExt = registry.extensions[0].extension[i].require[k];
+
+		if (!thisExt.enum) { continue; }
+
+		for (var j = 0; j < thisExt.enum.length; j++) {
+		    if (!thisExt.enum[j].$.extends) { continue; }
+
+		    var thisIndex = gSpecDB.index[thisExt.enum[j].$.extends.toLowerCase()];		 
+		    if (!thisIndex && thisExt.enum[j].$.bitpos) {
+			// New enum, need to create instead of extending
+			// TODO handle if it doesn't have bitpos
+			var newEnum = {
+			    "name" : thisExt.enum[j].$.extends,
+			    // Onl need to include first field, rest will be added automatically
+			    "fields" : [{
+				"name" : thisExt.enum[j].$.name,
+				"comment" : thisExt.enum[j].$.comment,
+				"value" : "0x" + (1 << parseInt(thisExt.enum[j].$.bitpos)).toString(16)
+			    }]
+			};
+
+			var newIndex = {"key" : "enums", "index" : gSpecDB.enums.length };
+			gSpecDB.index[newEnum.name.toLowerCase()] = newIndex;
+			var name = newEnum.fields[0].name.toLowerCase();
+			if (typeof(gSpecDB.indexDeep[name]) == "object") {
+			    gSpecDB.indexDeep[name].push(thisIndex);
+			} else {
+			    gSpecDB.indexDeep[name] = [thisIndex];
+			}
+
+			gSpecDB.enums.push(newEnum);
+			continue;
+		    }
+		    
+		    // Add to enum object
+		    var field = {
+			"name" : thisExt.enum[j].$.name,
+			"comment" : thisExt.enum[j].$.comment
+		    };
+
+		    if (thisExt.enum[j].$.bitpos) {
+			field.value = "0x" + (1 << parseInt(thisExt.enum[j].$.bitpos)).toString(16);
+		    } else {
+			// TODO figure how to handle others
+			continue;
+		    }
+		    
+		    gSpecDB.enums[thisIndex.index].fields.push(field);
+		    
+		    // Add to indexDeep
+		    var name = field.name.toLowerCase();
+		    if (typeof(gSpecDB.indexDeep[name]) == "object") {
+			gSpecDB.indexDeep[name].push(thisIndex);
+		    } else {
+			gSpecDB.indexDeep[name] = [thisIndex];
+		    }
+		}
+	    }
+	}
+	
 	// ------------- Structs and Unions -------------
-	specDB.structs = [];
-	specDB.unions = [];
 	for (var i = 0; i < registry.types[0].type.length; i++) {
 	    var oldType = registry.types[0].type[i];
 	    if (!oldType.member) { continue; }
@@ -95,22 +176,34 @@ function parseSpec() {
 		
 		// Check for point and arrays in type
 		if (oldType.member[j]._) {
-		    member.type += oldType.member[j]._.trim()
+		    member.type += " " + oldType.member[j]._.trim();
 		}
 		
 		members.push(member);
 	    }
 	    newStruct.members = members;
 
-	    if (oldType.$.category == "struct") {
-		specDB.structs.push(newStruct);
-	    } else if (oldType.$.category == "union") {
-		specDB.unions.push(newStruct);
+	    // Get value for gSpecDV
+	    var dbField = "";
+	    if (oldType.$.category == "struct") { dbField = "structs"; }
+	    else if (oldType.$.category == "union") { dbField = "unions"; }
+	    else { console.error("oldType.$.category unknown: " + oldType.$.category); }
+	    
+	    // Update index
+	    var thisIndex = {"key" : dbField, "index" : gSpecDB[dbField].length };
+	    gSpecDB.index[newStruct.name.toLowerCase()] = thisIndex;
+	    for (var j = 0; j < newStruct.members.length; j++) {
+		var name = newStruct.members[j].name.toLowerCase();
+		if (typeof(gSpecDB.indexDeep[name]) == "object") {
+		    gSpecDB.indexDeep[name].push(thisIndex);
+		} else {
+		    gSpecDB.indexDeep[name] = [thisIndex];
+		}
 	    }
+	    gSpecDB[dbField].push(newStruct);
 	}
 
 	// ------------- Commands -------------
-	specDB.commands = [];
 	for (var i = 0; i < registry.commands[0].command.length; i++) {
 	    var oldCommand = registry.commands[0].command[i];
 	    if (!oldCommand.proto) { continue; }
@@ -145,22 +238,18 @@ function parseSpec() {
 
 		// Check for point and arrays in type
 		if (oldCommand.param[j]._) {
-		    param.type += oldCommand.param[j]._.trim();
+		    param.type += " " + oldCommand.param[j]._.trim();
 		}
 		
 		params.push(param);
 	    }
 	    newCommand.params = params;
 
-	    specDB.commands.push(newCommand);
+	    gSpecDB.index[newCommand.name.toLowerCase()] = {"key" : "commands", "index" : gSpecDB.commands.length };;
+	    gSpecDB.commands.push(newCommand);
 	}
 	    
-	// ------------- Features -------------
-
-	// ------------- Extensions -------------
-	
-	debugger;
-	
+	debugger; // For getting repl in inspect mode to view gSpecDB
     });
 }
 
