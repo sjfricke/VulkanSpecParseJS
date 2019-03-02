@@ -5,18 +5,18 @@ var parseXml = require('xml2js').parseString;
 const specFilePath = "./vk.xml";
 const specUrl = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml";
 
-// gSpecDB is the global restructured version of the spec to JSON for easier querying
-// The structure/modle can be found in ./specdb.md
-var gSpecDB = {
-    "headerVersion" : "",
-    "index" : {},
-    "enums" : [],
-    "structs" : [],
-    "unions" : [],
-    "commands" : []
-};
+module.exports.parseSpec = function(callback) {
 
-function parseSpec() {
+    // gSpecDB is the global restructured version of the spec to JSON for easier querying
+    // The structure/modle can be found in ./specdb.md
+    var gSpecDB = {
+	"headerVersion" : "",
+	"index" : {},
+	"enums" : [],
+	"structs" : [],
+	"unions" : [],
+	"commands" : []
+    };
 
     // Gets file from either local xml or else from url
     var specXml;
@@ -259,9 +259,9 @@ function parseSpec() {
 	    }
 	    gSpecDB.commands.push(newCommand);
 	}
-	
-	debugger; // For getting repl in inspect mode to view gSpecDB
+
+	// For getting repl in inspect mode to view gSpecDB
+	// debugger;
+	callback(gSpecDB);
     });
 }
-
-parseSpec();
